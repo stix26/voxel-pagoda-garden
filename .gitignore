@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Other HTML files (keep only voxel-pagoda-garden.html)
+index.html
+deepseek_voxel_pagoda.html
+blank.html
+
+# Screen recordings
+*.mov
+*.mp4
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

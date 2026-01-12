@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Pagoda Garden</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+            background: #0a0a0f;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .title-card {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            color: #fff;
+            text-shadow: 0 2px 20px rgba(255, 150, 180, 0.5);
+        }
+
+        .title-card h1 {
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            background: linear-gradient(135deg, #ffb7c5, #fff, #ffd4e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .title-card p {
+            font-size: 0.85rem;
+            opacity: 0.7;
+            margin-top: 5px;
+            letter-spacing: 0.2em;
+        }
+
+        .controls-hint {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.5);
+            font-size: 0.75rem;
+            letter-spacing: 0.1em;
+        }
+
+        .loading-screen {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #1a0a10 0%, #0a0a0f 50%, #0a101a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 1s ease, visibility 1s ease;
+        }
+
+        .loading-screen.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .loading-blossom {
+            width: 60px;
+            height: 60px;
+            position: relative;
+            animation: float 2s ease-in-out infinite;
+        }
+
+        .loading-blossom::before,
+        .loading-blossom::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ffb7c5;
+            border-radius: 50% 0 50% 50%;
+        }
+
+        .loading-blossom::before {
+            top: 0; left: 20px;
+            animation: petal-spin 1.5s ease-in-out infinite;
+        }
+
+        .loading-blossom::after {
+            top: 20px; left: 0;
+            animation: petal-spin 1.5s ease-in-out infinite 0.2s;
+        }
+
+        .loading-text {
+            margin-top: 30px;
+            color: #ffb7c5;
+            font-size: 0.9rem;
+            letter-spacing: 0.3em;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-10px) rotate(5deg); }
+        }
+
+        @keyframes petal-spin {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .dark body { background: #0a0a0f; }
+    </style>
+</head>
+<body>
+    <div class="loading-screen" id="loading">
+        <div class="loading-blossom"></div>
+        <div class="loading-text">CULTIVATING GARDEN</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div class="ui-overlay title-card">
+        <h1>桜庭園</h1>
+        <p>SAKURA PAGODA GARDEN</p>
+    </div>
+
+    <div class="ui-overlay controls-hint">
+        DRAG TO ORBIT • SCROLL TO ZOOM • DOUBLE-CLICK TO RESET
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+
+        // Camera
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(35, 25, 35);
+        camera.lookAt(0, 8, 0);
+
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        container.appendChild(renderer.domElement);
+
+        // Sky gradient background
+        const skyCanvas = document.createElement('canvas');
+        skyCanvas.width = 2;
+        skyCanvas.height = 512;
+        const skyCtx = skyCanvas.getContext('2d');
+        const skyGradient = skyCtx.createLinearGradient(0, 0, 0, 512);
+        skyGradient.addColorStop(0, '#1a0520');
+        skyGradient.addColorStop(0.3, '#2d1b4e');
+        skyGradient.addColorStop(0.5, '#4a2c6a');
+        skyGradient.addColorStop(0.7, '#ff9ecd');
+        skyGradient.addColorStop(1, '#ffcce0');
+        skyCtx.fillStyle = skyGradient;
+        skyCtx.fillRect(0, 0, 2, 512);
+
+        const skyTexture = new THREE.CanvasTexture(skyCanvas);
+        scene.background = skyTexture;
+
+        // Fog
+        scene.fog = new THREE.FogExp2(0xffb7c5, 0.012);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffeeff, 0.4);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfff5e0, 1.2);
+        sunLight.position.set(30, 50, 20);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 1;
+        sunLight.shadow.camera.far = 100;
+        sunLight.shadow.camera.left = -40;
+        sunLight.shadow.camera.right = 40;
+        sunLight.shadow.camera.top = 40;
+        sunLight.shadow.camera.bottom = -40;
+        sunLight.shadow.bias = -0.001;
+        scene.add(sunLight);
+
+        const fillLight = new THREE.DirectionalLight(0xffb7c5, 0.5);
+        fillLight.position.set(-20, 20, -10);
+        scene.add(fillLight);
+
+        const rimLight = new THREE.DirectionalLight(0x88ccff, 0.3);
+        rimLight.position.set(0, 10, -30);
+        scene.add(rimLight);
+
+        // Color palette
+        const colors = {
+            pagodaRed: 0xc41e3a,
+            pagodaRedDark: 0x8b0000,
+            pagodaGold: 0xffd700,
+            pagodaGoldDark: 0xb8860b,
+            roofTile: 0x2d2d3a,
+            roofTileLight: 0x4a4a5a,
+            wood: 0x5c4033,
+            woodDark: 0x3d2817,
+            stone: 0x808080,
+            stoneLight: 0xa0a0a0,
+            stoneDark: 0x606060,
+            grass: 0x228b22,
+            grassLight: 0x32cd32,
+            grassDark: 0x006400,
+            water: 0x40e0d0,
+            waterDeep: 0x008b8b,
+            cherry: 0xffb7c5,
+            cherryLight: 0xffd4e0,
+            cherryDark: 0xff69b4,
+            trunk: 0x654321,
+            bamboo: 0x4a7c23,
+            bambooLight: 0x7cfc00,
+            lantern: 0xff6347,
+            lanternGlow: 0xffa07a
+        };
+
+        // Voxel creation helper
+        function createVoxel(x, y, z, color, size = 1) {
+            const geometry = new THREE.BoxGeometry(size, size, size);
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.7,
+                metalness: 0.1
+            });
+            const voxel = new THREE.Mesh(geometry, material);
+            voxel.position.set(x, y, z);
+            voxel.castShadow = true;
+            voxel.receiveShadow = true;
+            return voxel;
+        }
+
+        // Ground/terrain
+        function createTerrain() {
+            const terrain = new THREE.Group();
+
+            // Main ground layer
+            for (let x = -25; x <= 25; x++) {
+                for (let z = -25; z <= 25; z++) {
+                    const distFromCenter = Math.sqrt(x * x + z * z);
+                    if (distFromCenter > 28) continue;
+
+                    // Pond area
+                    const pondX = 12, pondZ = -8;
+                    const distFromPond = Math.sqrt((x - pondX) ** 2 + (z - pondZ) ** 2);
+
+                    if (distFromPond < 5) {
+                        // Water
+                        const waterDepth = distFromPond < 3 ? -0.5 : -0.2;
+                        const waterColor = distFromPond < 2 ? colors.waterDeep : colors.water;
+                        const waterVoxel = createVoxel(x, waterDepth, z, waterColor);
+                        waterVoxel.material.transparent = true;
+                        waterVoxel.material.opacity = 0.8;
+                        waterVoxel.material.roughness = 0.1;
+                        terrain.add(waterVoxel);
+                    } else {
+                        // Grass with variation
+                        const grassVariant = Math.random();
+                        let grassColor = colors.grass;
+                        if (grassVariant > 0.7) grassColor = colors.grassLight;
+                        else if (grassVariant < 0.2) grassColor = colors.grassDark;
+
+                        terrain.add(createVoxel(x, 0, z, grassColor));
+
+                        // Random flowers
+                        if (Math.random() > 0.95 && distFromCenter > 8) {
+                            const flowerColors = [0xff6b6b, 0xffd93d, 0x6bcb77, 0x4d96ff, 0xff69b4];
+                            terrain.add(createVoxel(x, 1, z, flowerColors[Math.floor(Math.random() * flowerColors.length)], 0.3));
+                        }
+                    }
+                }
+            }
+
+            // Stone path
+            const pathPoints = [];
+            for (let i = -20; i <= 0; i++) {
+                pathPoints.push({ x: i, z: Math.sin(i * 0.2) * 2 });
+            }
+
+            pathPoints.forEach(point => {
+                for (let w = -1; w <= 1; w++) {
+                    const stoneColor = Math.random() > 0.5 ? colors.stone : colors.stoneLight;
+                    terrain.add(createVoxel(point.x, 0.1, point.z + w, stoneColor));
+                }
+            });
+
+            return terrain;
+        }
+
+        // Pagoda
+        function createPagoda() {
+            const pagoda = new THREE.Group();
+
+            // Foundation
+            for (let x = -6; x <= 6; x++) {
+                for (let z = -6; z <= 6; z++) {
+                    terrain.add(createVoxel(x, 0.5, z, colors.stoneLight));
+                    if (Math.abs(x) === 6 || Math.abs(z) === 6) {
+                        pagoda.add(createVoxel(x, 1.5, z, colors.stone));
+                    }
+                }
+            }
+
+            // Stairs
+            for (let step = 0; step < 3; step++) {
+                for (let sx = -2; sx <= 2; sx++) {
+                    pagoda.add(createVoxel(sx, step * 0.5, 7 + step, colors.stoneLight));
+                }
+            }
+
+            const tiers = [
+                { baseSize: 5, height: 6, roofOverhang: 3 },
+                { baseSize: 4, height: 5, roofOverhang: 2.5 },
+                { baseSize: 3, height: 4, roofOverhang: 2 },
+                { baseSize: 2, height: 3, roofOverhang: 1.5 },
+                { baseSize: 1, height: 2, roofOverhang: 1 }
+            ];
+
+            let currentY = 2;
+
+            tiers.forEach((tier, tierIndex) => {
+                const { baseSize, height, roofOverhang } = tier;
+
+                // Pillars
+                for (let corner of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+                    const px = corner[0] * (baseSize - 0.5);
+                    const pz = corner[1] * (baseSize - 0.5);
+                    for (let py = 0; py < height - 1; py++) {
+                        pagoda.add(createVoxel(px, currentY + py, pz, colors.pagodaRed));
+                    }
+                }
+
+                // Walls with windows
+                for (let side = 0; side < 4; side++) {
+                    const angle = (side * Math.PI) / 2;
+                    for (let w = -baseSize + 1; w < baseSize; w++) {
+                        for (let h = 0; h < height - 1; h++) {
+                            const isWindow = Math.abs(w) < baseSize - 1 && h > 0 && h < height - 2;
+                            if (!isWindow || (tierIndex === 0 && side === 0 && Math.abs(w) < 2 && h < 3)) {
+                                let wx, wz;
+                                if (side === 0) { wx = w; wz = baseSize - 0.5; }
+                                else if (side === 1) { wx = baseSize - 0.5; wz = -w; }
+                                else if (side === 2) { wx = -w; wz = -baseSize + 0.5; }
+                                else { wx = -baseSize + 0.5; wz = w; }
+
+                                // Skip door area
+                                if (tierIndex === 0 && side === 0 && Math.abs(w) < 2 && h < 3) continue;
+
+                                const wallColor = h === height - 2 ? colors.pagodaGold : colors.pagodaRed;
+                                pagoda.add(createVoxel(wx, currentY + h, wz, wallColor));
+                            }
+                        }
+                    }
+                }
+
+                // Roof
+                const roofStart = currentY + height - 1;
+                for (let layer = 0; layer <= roofOverhang + 1; layer++) {
+                    const roofSize = baseSize + roofOverhang - layer * 0.8;
+                    if (roofSize < 0.5) break;
+
+                    for (let rx = -Math.ceil(roofSize); rx <= Math.ceil(roofSize); rx++) {
+                        for (let rz = -Math.ceil(roofSize); rz <= Math.ceil(roofSize); rz++) {
+                            const dist = Math.max(Math.abs(rx), Math.abs(rz));
+                            if (dist <= roofSize) {
+                                const isEdge = dist > roofSize - 1;
+                                const roofColor = isEdge ? colors.roofTileLight : colors.roofTile;
+                                pagoda.add(createVoxel(rx, roofStart + layer * 0.5, rz, roofColor));
+                            }
+                        }
+                    }
+
+                    // Corner ornaments
+                    if (layer === 0) {
+                        const corners = [
+                            [roofSize + 0.5, roofSize + 0.5],
+                            [roofSize + 0.5, -roofSize - 0.5],
+                            [-roofSize - 0.5, roofSize + 0.5],
+                            [-roofSize - 0.5, -roofSize - 0.5]
+                        ];
+                        corners.forEach(([cx, cz]) => {
+                            pagoda.add(createVoxel(cx, roofStart, cz, colors.pagodaGold, 0.5));
+                            pagoda.add(createVoxel(cx, roofStart - 0.5, cz, colors.pagodaGold, 0.3));
+                        });
+                    }
+                }
+
+                currentY += height + 1;
+            });
+
+            // Spire
+            for (let sy = 0; sy < 4; sy++) {
+                pagoda.add(createVoxel(0, currentY + sy, 0, colors.pagodaGold, 0.5 - sy * 0.1));
+            }
+
+            return pagoda;
+        }
+
+        // Cherry blossom tree
+        function createCherryTree(x, z, scale = 1) {
+            const tree = new THREE.Group();
+
+            const trunkHeight = Math.floor(4 + Math.random() * 3) * scale;
+
+            // Trunk
+            for (let ty = 0; ty < trunkHeight; ty++) {
+                tree.add(createVoxel(0, ty + 1, 0, colors.trunk, scale));
+                if (ty > trunkHeight * 0.4 && Math.random() > 0.6) {
+                    const branchDir = Math.random() > 0.5 ? 1 : -1;
+                    const branchAxis = Math.random() > 0.5;
+                    if (branchAxis) {
+                        tree.add(createVoxel(branchDir * scale, ty + 1, 0, colors.trunk, scale * 0.7));
+                    } else {
+                        tree.add(createVoxel(0, ty + 1, branchDir * scale, colors.trunk, scale * 0.7));
+                    }
+                }
+            }
+
+            // Blossom canopy
+            const canopyRadius = (3 + Math.random() * 2) * scale;
+            const canopyY = trunkHeight + 1;
+
+            for (let bx = -canopyRadius; bx <= canopyRadius; bx++) {
+                for (let by = -canopyRadius / 2; by <= canopyRadius / 2; by++) {
+                    for (let bz = -canopyRadius; bz <= canopyRadius; bz++) {
+                        const dist = Math.sqrt(bx * bx + by * by * 4 + bz * bz);
+                        if (dist < canopyRadius && Math.random() > 0.3) {
+                            const cherryVariant = Math.random();
+                            let blossomColor = colors.cherry;
+                            if (cherryVariant > 0.7) blossomColor = colors.cherryLight;
+                            else if (cherryVariant < 0.2) blossomColor = colors.cherryDark;
+
+                            const blossom = createVoxel(bx, canopyY + by, bz, blossomColor, scale * 0.8);
+                            blossom.material.transparent = true;
+                            blossom.material.opacity = 0.9;
+                            tree.add(blossom);
+                        }
+                    }
+                }
+            }
+
+            tree.position.set(x, 0, z);
+            return tree;
+        }
+
+        // Bamboo cluster
+        function createBamboo(x, z) {
+            const bamboo = new THREE.Group();
+
+            for (let i = 0; i < 5 + Math.floor(Math.random() * 5); i++) {
+                const bx = (Math.random() - 0.5) * 2;
+                const bz = (Math.random() - 0.5) * 2;
+                const height = 6 + Math.floor(Math.random() * 6);
+
+                for (let h = 0; h < height; h++) {
+                    const segmentColor = h % 3 === 0 ? colors.bambooLight : colors.bamboo;
+                    bamboo.add(createVoxel(bx, h + 1, bz, segmentColor, 0.4));
+
+                    // Leaves at top
+                    if (h > height - 3) {
+                        if (Math.random() > 0.5) {
+                            bamboo.add(createVoxel(bx + 0.5, h + 1, bz, colors.bambooLight, 0.3));
+                            bamboo.add(createVoxel(bx + 0.8, h + 1, bz, colors.bamboo, 0.2));
+                        }
+                        if (Math.random() > 0.5) {
+                            bamboo.add(createVoxel(bx - 0.5, h + 1, bz, colors.bambooLight, 0.3));
+                        }
+                    }
+                }
+            }
+
+            bamboo.position.set(x, 0, z);
+            return bamboo;
+        }
+
+        // Stone lantern
+        function createLantern(x, z) {
+            const lantern = new THREE.Group();
+
+            // Base
+            lantern.add(createVoxel(0, 1, 0, colors.stone, 1.2));
+            lantern.add(createVoxel(0, 2, 0, colors.stoneDark, 0.8));
+            lantern.add(createVoxel(0, 3, 0, colors.stone, 0.6));
+
+            // Light chamber
+            for (let lx = -0.3; lx <= 0.3; lx += 0.6) {
+                for (let lz = -0.3; lz <= 0.3; lz += 0.6) {
+                    const chamber = createVoxel(lx, 4, lz, colors.lanternGlow, 0.5);
+                    chamber.material.emissive = new THREE.Color(colors.lantern);
+                    chamber.material.emissiveIntensity = 0.8;
+                    lantern.add(chamber);
+                }
+            }
+
+            // Roof
+            lantern.add(createVoxel(0, 5, 0, colors.stone, 1));
+            lantern.add(createVoxel(0, 5.5, 0, colors.stoneDark, 0.6));
+            lantern.add(createVoxel(0, 6, 0, colors.stone, 0.3));
+
+            // Point light
+            const light = new THREE.PointLight(colors.lanternGlow, 0.5, 8);
+            light.position.set(0, 4, 0);
+            lantern.add(light);
+
+            lantern.position.set(x, 0, z);
+            return lantern;
+        }
+
+        // Bridge over pond
+        function createBridge() {
+            const bridge = new THREE.Group();
+
+            const bridgeX = 12;
+            const bridgeZ = -8;
+
+            // Arch bridge
+            for (let bz = -6; bz <= 6; bz++) {
+                const archHeight = 2 + Math.sin((bz + 6) / 12 * Math.PI) * 1.5;
+
+                // Deck
+                for (let bx = -1.5; bx <= 1.5; bx++) {
+                    bridge.add(createVoxel(bridgeX + bx, archHeight, bridgeZ + bz, colors.pagodaRed));
+                }
+
+                // Railings
+                if (Math.abs(bz) < 5) {
+                    bridge.add(createVoxel(bridgeX - 1.5, archHeight + 1, bridgeZ + bz, colors.pagodaGold, 0.5));
+                    bridge.add(createVoxel(bridgeX + 1.5, archHeight + 1, bridgeZ + bz, colors.pagodaGold, 0.5));
+                }
+
+                // Posts
+                if (bz % 2 === 0 && Math.abs(bz) < 5) {
+                    bridge.add(createVoxel(bridgeX - 1.5, archHeight + 1.5, bridgeZ + bz, colors.pagodaRed, 0.4));
+                    bridge.add(createVoxel(bridgeX + 1.5, archHeight + 1.5, bridgeZ + bz, colors.pagodaRed, 0.4));
+                }
+            }
+
+            return bridge;
+        }
+
+        // Koi fish in pond
+        function createKoi() {
+            const koi = new THREE.Group();
+            const koiColors = [0xff6b35, 0xffffff, 0xff4757, 0xffd93d];
+
+            for (let i = 0; i < 5; i++) {
+                const fish = new THREE.Group();
+                const fishColor = koiColors[Math.floor(Math.random() * koiColors.length)];
+
+                fish.add(createVoxel(0, 0, 0, fishColor, 0.4));
+                fish.add(createVoxel(0.3, 0, 0, fishColor, 0.3));
+                fish.add(createVoxel(-0.3, 0, 0.1, fishColor, 0.25));
+                fish.add(createVoxel(-0.5, 0, 0, fishColor, 0.15));
+
+                const angle = (i / 5) * Math.PI * 2;
+                const radius = 2 + Math.random() * 2;
+                fish.position.set(
+                    12 + Math.cos(angle) * radius,
+                    0.3,
+                    -8 + Math.sin(angle) * radius
+                );
+                fish.userData = { angle: angle, radius: radius, speed: 0.3 + Math.random() * 0.2 };
+
+                koi.add(fish);
+            }
+
+            return koi;
+        }
+
+        // Falling petals particle system
+        function createPetals() {
+            const petals = [];
+            const petalGeometry = new THREE.BoxGeometry(0.15, 0.05, 0.15);
+
+            for (let i = 0; i < 100; i++) {
+                const petalColor = Math.random() > 0.5 ? colors.cherry : colors.cherryLight;
+                const petalMaterial = new THREE.MeshStandardMaterial({
+                    color: petalColor,
+                    transparent: true,
+                    opacity: 0.8
+                });
+
+                const petal = new THREE.Mesh(petalGeometry, petalMaterial);
+                petal.position.set(
+                    (Math.random() - 0.5) * 60,
+                    Math.random() * 30 + 10,
+                    (Math.random() - 0.5) * 60
+                );
+                petal.rotation.set(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI
+                );
+                petal.userData = {
+                    fallSpeed: 0.02 + Math.random() * 0.03,
+                    swaySpeed: 0.5 + Math.random() * 0.5,
+                    swayAmount: 0.02 + Math.random() * 0.02,
+                    rotationSpeed: {
+                        x: (Math.random() - 0.5) * 0.02,
+                        y: (Math.random() - 0.5) * 0.02,
+                        z: (Math.random() - 0.5) * 0.02
+                    }
+                };
+
+                scene.add(petal);
+                petals.push(petal);
+            }
+
+            return petals;
+        }
+
+        // Build scene
+        const terrain = createTerrain();
+        scene.add(terrain);
+
+        const pagoda = createPagoda();
+        scene.add(pagoda);
+
+        // Cherry trees
+        const treePositions = [
+            [-15, 10], [-18, 5], [-12, 15], [-20, 12],
+            [18, 12], [22, 8], [15, 18], [20, 15],
+            [-8, -15], [-12, -18], [5, -20], [-15, -12],
+            [20, -5], [18, -15]
+        ];
+
+        treePositions.forEach(([tx, tz]) => {
+            const scale = 0.8 + Math.random() * 0.4;
+            scene.add(createCherryTree(tx, tz, scale));
+        });
+
+        // Bamboo
+        scene.add(createBamboo(-20, -5));
+        scene.add(createBamboo(-22, -8));
+        scene.add(createBamboo(22, -12));
+
+        // Lanterns
+        scene.add(createLantern(-8, 8));
+        scene.add(createLantern(8, 8));
+        scene.add(createLantern(-10, -10));
+        scene.add(createLantern(8, -15));
+
+        // Bridge and koi
+        scene.add(createBridge());
+        const koi = createKoi();
+        scene.add(koi);
+
+        // Petals
+        const petals = createPetals();
+
+        // Camera controls
+        let isMouseDown = false;
+        let mouseX = 0, mouseY = 0;
+        let cameraAngle = Math.PI / 4;
+        let cameraPitch = 0.4;
+        let cameraDistance = 50;
+        let targetAngle = cameraAngle;
+        let targetPitch = cameraPitch;
+        let targetDistance = cameraDistance;
+
+        container.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        container.addEventListener('mousemove', (e) => {
+            if (!isMouseDown) return;
+            const deltaX = e.clientX - mouseX;
+            const deltaY = e.clientY - mouseY;
+            targetAngle -= deltaX * 0.005;
+            targetPitch = Math.max(0.1, Math.min(1.2, targetPitch + deltaY * 0.005));
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        container.addEventListener('mouseup', () => isMouseDown = false);
+        container.addEventListener('mouseleave', () => isMouseDown = false);
+
+        container.addEventListener('wheel', (e) => {
+            targetDistance = Math.max(20, Math.min(80, targetDistance + e.deltaY * 0.05));
+        });
+
+        container.addEventListener('dblclick', () => {
+            targetAngle = Math.PI / 4;
+            targetPitch = 0.4;
+            targetDistance = 50;
+        });
+
+        // Touch support
+        let touchStartX = 0, touchStartY = 0;
+        container.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }
+        });
+
+        container.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1) {
+                const deltaX = e.touches[0].clientX - touchStartX;
+                const deltaY = e.touches[0].clientY - touchStartY;
+                targetAngle -= deltaX * 0.005;
+                targetPitch = Math.max(0.1, Math.min(1.2, targetPitch + deltaY * 0.005));
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }
+        });
+
+        // Animation
+        let time = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.016;
+
+            // Smooth camera
+            cameraAngle += (targetAngle - cameraAngle) * 0.05;
+            cameraPitch += (targetPitch - cameraPitch) * 0.05;
+            cameraDistance += (targetDistance - cameraDistance) * 0.05;
+
+            camera.position.x = Math.cos(cameraAngle) * Math.cos(cameraPitch) * cameraDistance;
+            camera.position.y = Math.sin(cameraPitch) * cameraDistance + 10;
+            camera.position.z = Math.sin(cameraAngle) * Math.cos(cameraPitch) * cameraDistance;
+            camera.lookAt(0, 10, 0);
+
+            // Animate koi
+            koi.children.forEach((fish, i) => {
+                fish.userData.angle += fish.userData.speed * 0.02;
+                fish.position.x = 12 + Math.cos(fish.userData.angle) * fish.userData.radius;
+                fish.position.z = -8 + Math.sin(fish.userData.angle) * fish.userData.radius;
+                fish.rotation.y = -fish.userData.angle + Math.PI / 2;
+            });
+
+            // Animate petals
+            petals.forEach(petal => {
+                petal.position.y -= petal.userData.fallSpeed;
+                petal.position.x += Math.sin(time * petal.userData.swaySpeed) * petal.userData.swayAmount;
+                petal.position.z += Math.cos(time * petal.userData.swaySpeed * 0.7) * petal.userData.swayAmount;
+
+                petal.rotation.x += petal.userData.rotationSpeed.x;
+                petal.rotation.y += petal.userData.rotationSpeed.y;
+                petal.rotation.z += petal.userData.rotationSpeed.z;
+
+                if (petal.position.y < 0) {
+                    petal.position.y = 30 + Math.random() * 10;
+                    petal.position.x = (Math.random() - 0.5) * 60;
+                    petal.position.z = (Math.random() - 0.5) * 60;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Hide loading screen
+        setTimeout(() => {
+            document.getElementById('loading').classList.add('hidden');
+        }, 1500);
+
+        animate();
+    </script>
+</body>
+</html>
